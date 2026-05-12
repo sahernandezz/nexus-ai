@@ -1,0 +1,2 @@
+rootProject.name = "nexusai-backend"
+

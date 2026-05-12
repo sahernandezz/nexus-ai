@@ -1,0 +1,37 @@
+# ─── Java / Gradle ────────────────────────────────────────────────────────────
+nexusai-backend/build/
+nexusai-backend/.gradle/
+nexusai-backend/out/
+*.class
+*.jar
+
+# ─── Spring Boot ──────────────────────────────────────────────────────────────
+nexusai-backend/logs/
+nexusai-backend/tmp/
+
+# ─── Secrets ──────────────────────────────────────────────────────────────────
+.env
+*.pem
+*.key
+*.p12
+
+# ─── Node / Frontend ──────────────────────────────────────────────────────────
+nexusai-frontend/node_modules/
+nexusai-frontend/dist/
+nexusai-frontend/.vite/
+
+# ─── IDEs ─────────────────────────────────────────────────────────────────────
+.idea/
+*.iml
+.vscode/
+*.swp
+*.swo
+.DS_Store
+
+# ─── Docker ───────────────────────────────────────────────────────────────────
+nexusai-frontend/nginx/.htpasswd
+
+# ─── Logs ─────────────────────────────────────────────────────────────────────
+*.log
+logs/
+

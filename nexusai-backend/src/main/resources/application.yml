@@ -1,0 +1,248 @@
+# ─── NexusAI — application.yml ────────────────────────────────────────────────
+# AI provider: OpenAI (GPT-4o + text-embedding-3-small)
+# ──────────────────────────────────────────────────────────────────────────────
+
+nexusai:
+  version: 1.0.0
+
+  # ── Semantic cache ────────────────────────────────────────────────────────────
+  cache:
+    ttl-seconds: ${CACHE_TTL_SECONDS:3600}
+    similarity-threshold: ${CACHE_SIMILARITY_THRESHOLD:0.85}
+
+# ── MinIO (Object Storage) ─────────────────────────────────────────────────────
+minio:
+  endpoint: ${MINIO_ENDPOINT:http://localhost:9000}
+  access-key: ${MINIO_ACCESS_KEY:minioadmin}
+  secret-key: ${MINIO_SECRET_KEY:minioadmin}
+  bucket: ${MINIO_BUCKET:nexusai-documents}
+
+spring:
+  application:
+    name: nexusai-backend
+
+  # ── HTTP client (RestClient used by Spring AI for OpenAI calls) ──────────────
+  # DALL-E 3 image generation can take 15-40s; default read-timeout is too short.
+  http:
+    client:
+      connect-timeout: 10s
+      read-timeout: 120s
+
+  threads:
+    virtual:
+      enabled: true # Virtual Threads (Spring Boot 3.2+)
+
+  # ── WebFlux ──────────────────────────────────────────────────────────────────
+  webflux:
+    base-path: ""
+
+  # ── R2DBC (Reactive Database) ─────────────────────────────────────────────────
+  r2dbc:
+    url: r2dbc:postgresql://${DB_HOST:localhost}:${DB_PORT:5432}/${DB_NAME:nexusai}
+    username: ${DB_USER:nexusai}
+    password: ${DB_PASSWORD:nexusai}
+    pool:
+      initial-size: 5
+      max-size: 20
+      max-idle-time: 30m
+
+  # ── JDBC DataSource (Flyway only) ─────────────────────────────────────────────
+  datasource:
+    url: jdbc:postgresql://${DB_HOST:localhost}:${DB_PORT:5432}/${DB_NAME:nexusai}
+    username: ${DB_USER:nexusai}
+    password: ${DB_PASSWORD:nexusai}
+    hikari:
+      maximum-pool-size: 5
+
+  # ── Flyway ────────────────────────────────────────────────────────────────────
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+    baseline-on-migrate: true
+
+  # ── Redis ──────────────────────────────────────────────────────────────────────
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: ${REDIS_PORT:6379}
+      password: ${REDIS_PASSWORD:}
+      timeout: 2000ms
+
+  # ── RabbitMQ ──────────────────────────────────────────────────────────────────
+  rabbitmq:
+    host: ${RABBITMQ_HOST:localhost}
+    port: ${RABBITMQ_PORT:5672}
+    username: ${RABBITMQ_USER:guest}
+    password: ${RABBITMQ_PASS:guest}
+    virtual-host: /
+    listener:
+      simple:
+        retry:
+          enabled: true
+          max-attempts: 3
+          initial-interval: 1000ms
+          multiplier: 2.0
+          max-interval: 10000ms
+
+  # ── Spring AI ─────────────────────────────────────────────────────────────────
+  # Chat:       OpenAI GPT-4.1 (default — much better RAG synthesis than mini)
+  # Embeddings: OpenAI text-embedding-3-small (1536 dims, matches pgvector schema)
+  # Image:      OpenAI gpt-image-1 (default — sharp text in diagrams; needs verified
+  #             org access. Set OPENAI_IMAGE_MODEL=dall-e-3 if not yet verified.)
+  ai:
+    openai:
+      api-key: ${OPENAI_API_KEY:}
+      base-url: ${OPENAI_BASE_URL:https://api.openai.com}
+      chat:
+        options:
+          model: ${OPENAI_CHAT_MODEL:gpt-4.1}
+          temperature: 0.4
+      embedding:
+        options:
+          model: text-embedding-3-small
+      image:
+        options:
+          model: ${OPENAI_IMAGE_MODEL:gpt-image-1}
+          quality: ${OPENAI_IMAGE_QUALITY:high}
+    chat:
+      memory:
+        repository:
+          jdbc:
+            # Creates spring_ai_chat_memory table when Flyway hasn't run yet.
+            # Idempotent (IF NOT EXISTS), so safe alongside V5 migration.
+            schema-initialization: true
+    vectorstore:
+      pgvector:
+        # OpenAI text-embedding-3-small → 1536 dims
+        dimensions: 1536
+        distance-type: COSINE_DISTANCE
+        index-type: IVFFLAT
+        initialize-schema: false # schema managed by Flyway migrations
+
+# ─── Server ───────────────────────────────────────────────────────────────────
+server:
+  port: 8080
+  shutdown: graceful
+
+# ─── JWT ──────────────────────────────────────────────────────────────────────
+security:
+  jwt:
+    secret: ${JWT_SECRET:nexusai-super-secret-key-change-in-production-minimum-32-chars}
+    access-token-expiration-minutes: 60
+    refresh-token-expiration-days: 7
+
+# ─── SpringDoc / Swagger ──────────────────────────────────────────────────────
+springdoc:
+  api-docs:
+    path: /v3/api-docs
+  swagger-ui:
+    path: /swagger-ui.html
+    try-it-out-enabled: true
+    operations-sorter: method
+    tags-sorter: alpha
+    display-request-duration: true
+  show-actuator: false
+
+# ─── Actuator ─────────────────────────────────────────────────────────────────
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health, info, metrics, prometheus, env, loggers, beans, mappings
+      base-path: /actuator
+  endpoint:
+    health:
+      show-details: always
+      probes:
+        enabled: true
+  info:
+    env:
+      enabled: true
+    java:
+      enabled: true
+    os:
+      enabled: true
+  metrics:
+    distribution:
+      percentiles-histogram:
+        http.server.requests: true
+      slo:
+        http.server.requests: 50ms, 100ms, 200ms, 500ms, 1s, 2s
+    tags:
+      application: ${spring.application.name}
+      environment: ${spring.profiles.active:default}
+  tracing:
+    sampling:
+      probability: 1.0
+  otlp:
+    tracing:
+      endpoint: ${OTLP_ENDPOINT:http://localhost:4318/v1/traces}
+  prometheus:
+    metrics:
+      export:
+        enabled: true
+
+# ─── Logging ──────────────────────────────────────────────────────────────────
+logging:
+  level:
+    root: INFO
+    com.sahernandezz.nexusai: DEBUG
+    org.springframework.r2dbc: DEBUG
+    org.springframework.security: INFO
+    org.springframework.ai: DEBUG
+    org.springframework.boot.autoconfigure: DEBUG
+    org.springframework.context: DEBUG
+
+---
+# ═══════════════════════════════════════════════════════════════════════════════
+# PROFILE: dev  (default — OpenAI API)
+# ═══════════════════════════════════════════════════════════════════════════════
+spring:
+  config:
+    activate:
+      on-profile: dev
+
+logging:
+  level:
+    org.springframework.security: DEBUG
+
+---
+# ═══════════════════════════════════════════════════════════════════════════════
+# PROFILE: prod
+# ═══════════════════════════════════════════════════════════════════════════════
+spring:
+  config:
+    activate:
+      on-profile: prod
+
+  r2dbc:
+    pool:
+      initial-size: 10
+      max-size: 50
+
+  flyway:
+    baseline-on-migrate: false
+
+logging:
+  level:
+    root: WARN
+    com.sahernandezz.nexusai: INFO
+    org.springframework.security: WARN
+
+---
+# ═══════════════════════════════════════════════════════════════════════════════
+# PROFILE: test  (Testcontainers — URLs overridden via @DynamicPropertySource)
+# ═══════════════════════════════════════════════════════════════════════════════
+spring:
+  config:
+    activate:
+      on-profile: test
+
+  flyway:
+    enabled: true
+    baseline-on-migrate: true
+
+logging:
+  level:
+    root: WARN
+    com.sahernandezz.nexusai: INFO
